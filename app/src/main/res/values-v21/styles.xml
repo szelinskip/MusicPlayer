@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="MusicPlayerTheme" parent="AppTheme">
+        <item name="colorPrimary">@color/mainColor</item>
+        <item name="colorPrimaryDark">@color/mainColorDarker</item>
+        <item name="colorAccent">@color/accentColorGreenDarker</item>
+        <item name="android:colorBackground">@color/backgroundThemeColor</item>
+        <item name="android:colorForeground">@android:color/white</item>
+        <item name="android:navigationBarColor">@color/accentColorGreenDarker</item>
+        <item name="android:textColorPrimary">@android:color/white</item>
+        <item name="android:textColorPrimaryInverse">@android:color/black</item>
+    </style>
+</resources>
