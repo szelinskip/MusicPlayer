@@ -2,16 +2,19 @@ package pl.pisquared.musicplayer;
 
 import android.Manifest;
 import android.arch.lifecycle.ViewModelProviders;
-import android.content.ContentUris;
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.media.AudioManager;
-import android.media.MediaPlayer;
-import android.net.Uri;
-import android.os.Handler;
-import android.provider.MediaStore;
+import android.os.IBinder;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.v4.util.Pair;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -24,22 +27,17 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.IOException;
 import java.util.List;
 
 import pl.pisquared.musicplayer.utils.StringTrackUtils;
 import pl.pisquared.musicplayer.utils.TimeConverterUtils;
 
 
-public class MainActivity extends AppCompatActivity implements TrackListAdapter.OnTrackListItemClickListener, TrackListAdapter.MusicPlayer,
-        MediaPlayer.OnPreparedListener, MediaPlayer.OnCompletionListener, MediaPlayer.OnErrorListener, View.OnClickListener
+public class MainActivity extends AppCompatActivity implements TrackListAdapter.OnTrackListItemClickListener, TrackListAdapter.MusicPlayer, View.OnClickListener
 {
     private static final String TAG = MainActivity.class.getSimpleName();
     private static final int PERMISSION_READ_EXTERNAL_STORAGE_REQUEST_CODE = 1;
     private static final String PERMISSION_DENIED_MSG = "This app requires external storage read permission to work";
-    private static final String BUNDLE_KEY_IS_PLAYING = "is_playing";
-    private static final String BUNDLE_KEY_IS_PAUSED = "is_paused";
-    private static final int UPDATE_TRACK_PROGRESS_BAR_DELAY = 1000;  // 1000ms = 1s
     private static final int FORWARD_TRACK_BY_MILLISECONDS = 10000;  // 10000ms = 10s
     private static final int REWIND_TRACK_BY_MILLISECONDS = 10000;  // 10000ms = 10s
     private RecyclerView rvTrackList;
@@ -51,20 +49,51 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
     private SeekBar sbTrackProgressBar;
     private TextView tvLeftTime;
     private List<Track> trackList;
-    private MediaPlayer player;
     private Track currentTrack;
     private ImageButton currentTrackIBView;
-    private boolean isPlaying = false;
-    private boolean isPaused = false;
     private MusicPlayerViewModel viewModel;
-    private Handler progressUpdaterHandler = new Handler();
-    private Runnable trackProgressBarUpdaterRunnable = () -> {
-        Log.d(TAG, "inside handler, position: " + player.getCurrentPosition());
-        Log.d(TAG, "bar max: " + sbTrackProgressBar.getMax() + " ; duration track: " + player.getDuration() + " bar curr pos: "+ sbTrackProgressBar.getProgress());
-        sbTrackProgressBar.setProgress(player.getCurrentPosition());
-        Pair<Integer, Integer> minsSeconds = TimeConverterUtils.getMinutesSecondsFromMilliSeconds(player.getDuration() - player.getCurrentPosition());
-        tvLeftTime.setText(StringTrackUtils.getTimeRepresentation(minsSeconds.first, minsSeconds.second));
-        progressUpdaterHandler.postDelayed(this.trackProgressBarUpdaterRunnable, UPDATE_TRACK_PROGRESS_BAR_DELAY);
+
+    private MusicForegroundService musicService;
+    private boolean musicServiceBounded = false;
+
+    private BroadcastReceiver messageReceiver = new BroadcastReceiver()
+    {
+        @Override
+        public void onReceive(Context context, Intent intent)
+        {
+            String msg = intent.getStringExtra(Constants.MESSAGE_KEY);
+            switch(msg)
+            {
+                case Constants.PREPARED_MSG:
+                    trackPrepared();
+                    break;
+                case Constants.COMPLETION_MSG:
+                    int newTrackIndex = intent.getIntExtra(Constants.CURRENT_TRACK_KEY, trackList.indexOf(currentTrack));
+                    trackCompletion(newTrackIndex);
+                    break;
+                case Constants.UPDATE_PROGRESS_MSG:
+                    updateProgressBar();
+                    break;
+            }
+        }
+    };
+
+    private ServiceConnection musicConnection = new ServiceConnection()
+    {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service)
+        {
+            MusicForegroundService.MusicPlayerServiceBinder binder = (MusicForegroundService.MusicPlayerServiceBinder) service;
+            musicService = binder.getService();
+            musicService.setTrackList(trackList);
+            musicServiceBounded = true;
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name)
+        {
+            musicServiceBounded = false;
+        }
     };
 
     @Override
@@ -121,7 +150,8 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
         initTrackProgressBar();
         initControlButtons();
         initCurrentTrack();
-        initPlayer();
+        setService();
+        initBroadcastReceiver();
     }
 
     private void getTrackList()
@@ -142,28 +172,6 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
         currentTrack = viewModel.getCurrentTrack();
     }
 
-    private void initPlayer()
-    {
-        player = viewModel.getPlayer();
-        if(player != null)
-        {
-            player.setOnPreparedListener(this);
-            player.setOnCompletionListener(this);
-            player.setOnErrorListener(this);
-            if(currentTrack != null)
-            {
-                Log.d(TAG, "Player current position: " + player.getCurrentPosition());
-                int playerDuration = player.getDuration();
-                sbTrackProgressBar.setMax(playerDuration);
-                int playerCurrPos = player.getCurrentPosition();
-                sbTrackProgressBar.setProgress(playerCurrPos);
-                Log.d(TAG, " init player bar max: " + sbTrackProgressBar.getMax() + " ; duration track: " + player.getDuration() + " bar curr pos: "+ sbTrackProgressBar.getProgress());
-            }
-            else
-                sbTrackProgressBar.setProgress(0);
-        }
-    }
-
     private void initTrackProgressBar()
     {
         sbTrackProgressBar = findViewById(R.id.sb_track_progress);
@@ -174,11 +182,9 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
             {
                 if(fromUser)
                 {
-                    if(currentTrack != null && (isPlaying || isPaused))
+                    if(currentTrack != null && musicService != null && (musicService.isPlaying() || musicService.isPaused()))
                     {
-                        progressUpdaterHandler.removeCallbacks(trackProgressBarUpdaterRunnable);
-                        player.seekTo(progress);
-                        progressUpdaterHandler.postDelayed(trackProgressBarUpdaterRunnable, 0);
+                        musicService.getPlayer().seekTo(progress);
                     }
                 }
             }
@@ -198,6 +204,21 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
         ibRewind.setOnClickListener(this);
     }
 
+    private void initBroadcastReceiver()
+    {
+        LocalBroadcastManager.getInstance(this).registerReceiver(messageReceiver, new IntentFilter(Constants.BROADCAST_INTENT_KEY));
+    }
+
+    private void setService()
+    {
+        if(musicService == null)
+        {
+            Intent startMusicService = new Intent(this, MusicForegroundService.class);
+            startService(startMusicService);
+            getApplicationContext().bindService(startMusicService, musicConnection, Context.BIND_AUTO_CREATE);
+        }
+    }
+
     @Override
     public void onTrackButtonClick(ImageButton ibView, Track track)
     {
@@ -208,11 +229,11 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
         }
         else
         {
-            if(isPlaying || isPaused)
+            if(musicService != null && (musicService.isPlaying() || musicService.isPaused()))
             {
-                player.reset();
-                isPlaying = false;
-                isPaused = false;
+                musicService.getPlayer().reset();
+                musicService.setPlaying(false);
+                musicService.setPaused(false);
             }
             if(currentTrackIBView != null)
             {
@@ -259,126 +280,146 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
 
     private void playPauseButtonsClickAux()
     {
-        if(player.isPlaying())
+        if(musicService != null)
         {
-            player.pause();
-            progressUpdaterHandler.removeCallbacks(trackProgressBarUpdaterRunnable);
-            isPlaying = false;
-            isPaused = true;
-            currentTrackIBView.setBackgroundResource(R.drawable.baseline_play_arrow_white_36);
-            ibPlayPause.setBackgroundResource(R.drawable.baseline_play_arrow_white_48);
-        }
-        else
-        {
-            player.start();
-            sbTrackProgressBar.setProgress(player.getCurrentPosition());
-            progressUpdaterHandler.postDelayed(trackProgressBarUpdaterRunnable, 0);
-            isPaused = false;
-            isPlaying = true;
-            currentTrackIBView.setBackgroundResource(R.drawable.baseline_pause_white_36);
-            ibPlayPause.setBackgroundResource(R.drawable.baseline_pause_white_48);
+            if(musicService.getPlayer().isPlaying())
+            {
+                musicService.getPlayer().pause();
+                musicService.setPlaying(false);
+                musicService.setPaused(true);
+                currentTrackIBView.setBackgroundResource(R.drawable.baseline_play_arrow_white_36);
+                ibPlayPause.setBackgroundResource(R.drawable.baseline_play_arrow_white_48);
+            }
+            else
+            {
+                musicService.getPlayer().start();
+                sbTrackProgressBar.setProgress(musicService.getPlayer().getCurrentPosition());
+                musicService.setPlaying(true);
+                musicService.setPaused(false);
+                currentTrackIBView.setBackgroundResource(R.drawable.baseline_pause_white_36);
+                ibPlayPause.setBackgroundResource(R.drawable.baseline_pause_white_48);
+            }
         }
     }
 
     private void forwardButtonClick()
     {
-        if(currentTrack != null && (isPlaying | isPaused))
+        if(currentTrack != null && musicService != null && (musicService.isPlaying() || musicService.isPaused()))
         {
-            progressUpdaterHandler.removeCallbacks(trackProgressBarUpdaterRunnable);
-            int duration = player.getDuration();
-            int currentPosition = player.getCurrentPosition();
+            int duration = musicService.getPlayer().getDuration();
+            int currentPosition = musicService.getPlayer().getCurrentPosition();
             int forwardedPosition = FORWARD_TRACK_BY_MILLISECONDS + currentPosition < duration ? FORWARD_TRACK_BY_MILLISECONDS + currentPosition : duration;
-            player.seekTo(forwardedPosition);
-            progressUpdaterHandler.postDelayed(trackProgressBarUpdaterRunnable, 0);
+            musicService.getPlayer().seekTo(forwardedPosition);
         }
     }
 
     private void rewindButtonClick()
     {
-        if(currentTrack != null && (isPlaying | isPaused))
+        if(currentTrack != null && musicService != null && (musicService.isPlaying() || musicService.isPaused()))
         {
-            progressUpdaterHandler.removeCallbacks(trackProgressBarUpdaterRunnable);
-            int currentPosition = player.getCurrentPosition();
+            int currentPosition = musicService.getPlayer().getCurrentPosition();
             int rewoundPosition = currentPosition - REWIND_TRACK_BY_MILLISECONDS > 0 ? currentPosition - REWIND_TRACK_BY_MILLISECONDS : 0;
-            player.seekTo(rewoundPosition);
-            progressUpdaterHandler.postDelayed(trackProgressBarUpdaterRunnable, 0);
+            musicService.getPlayer().seekTo(rewoundPosition);
         }
     }
 
     public void playTrack(Track track)
     {
-        Uri uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, track.getId());
-        try
+        musicService.playTrack(track);
+    }
+
+    private void trackPrepared()
+    {
+        currentTrack = musicService.getCurrentTrack();
+        tvTrackTitle.setText(currentTrack.getTitle());
+        sbTrackProgressBar.setMax(musicService.getPlayer().getDuration());
+    }
+
+    private void trackCompletion(int newTrackIndex)
+    {
+        if(newTrackIndex != musicService.getCurrentTrack().getId())
         {
-            player.setDataSource(this, uri);
-            player.prepareAsync();
-        } catch (IOException e)
-        {
-            Toast.makeText(this, R.string.track_playback_error, Toast.LENGTH_SHORT).show();
+            int trackIndex = trackList.indexOf(currentTrack);
+            Track track = trackList.get(newTrackIndex);
+            trackListAdapter.notifyItemChanged(trackIndex);
+            trackListAdapter.notifyItemChanged(newTrackIndex);
+            currentTrackIBView.setBackgroundResource(R.drawable.baseline_pause_white_36);
+            sbTrackProgressBar.setProgress(0);
+            currentTrack = track;
+            viewModel.setCurrentTrack(currentTrack);
         }
     }
 
-    @Override
-    public void onPrepared(MediaPlayer mp)
+    private void updateProgressBar()
     {
-        tvTrackTitle.setText(currentTrack.getTitle());
-        sbTrackProgressBar.setMax(mp.getDuration());
-        mp.start();
-        progressUpdaterHandler.postDelayed(trackProgressBarUpdaterRunnable, 0);
-        isPlaying = true;
+        sbTrackProgressBar.setProgress(musicService.getPlayer().getCurrentPosition());
+        Pair<Integer, Integer> minsSeconds = TimeConverterUtils.getMinutesSecondsFromMilliSeconds(musicService.getPlayer().getDuration() - musicService.getPlayer().getCurrentPosition());
+        tvLeftTime.setText(StringTrackUtils.getTimeRepresentation(minsSeconds.first, minsSeconds.second));
     }
 
     @Override
     protected void onPause()
     {
         super.onPause();
-        progressUpdaterHandler.removeCallbacks(trackProgressBarUpdaterRunnable);
     }
 
     @Override
     protected void onResume()
     {
         super.onResume();
-        if(player != null && (isPlaying | isPaused))
+        if(musicService != null && (musicService.isPlaying() || musicService.isPaused()))
         {
-            progressUpdaterHandler.postDelayed(trackProgressBarUpdaterRunnable, 0);
+            sbTrackProgressBar.setProgress(musicService.getPlayer().getCurrentPosition());
         }
+    }
+
+    @Override
+    protected void onStart()
+    {
+        super.onStart();
+    }
+
+    @Override
+    protected void onStop()
+    {
+        super.onStop();
+        if(musicServiceBounded)
+        {
+            getApplicationContext().unbindService(musicConnection);
+            musicServiceBounded = false;
+        }
+    }
+
+    @Override
+    public Object onRetainCustomNonConfigurationInstance()
+    {
+        return super.onRetainCustomNonConfigurationInstance();
+    }
+
+    @Override
+    protected void onDestroy()
+    {
+        super.onDestroy();
     }
 
     @Override
     public void onSaveInstanceState(Bundle outState)
     {
         super.onSaveInstanceState(outState);
-        outState.putBoolean(BUNDLE_KEY_IS_PLAYING, isPlaying);
-        outState.putBoolean(BUNDLE_KEY_IS_PAUSED, isPaused);
     }
 
     @Override
     protected void onRestoreInstanceState(Bundle savedInstanceState)
     {
         super.onRestoreInstanceState(savedInstanceState);
-        isPlaying = savedInstanceState.getBoolean(BUNDLE_KEY_IS_PLAYING);
-        isPaused = savedInstanceState.getBoolean(BUNDLE_KEY_IS_PAUSED);
-        if(currentTrack != null)
+        if(currentTrack != null && musicService != null)
         {
             tvTrackTitle.setText(currentTrack.getTitle());
-            if(player.isPlaying())
+            if(musicService.getPlayer().isPlaying())
                 ibPlayPause.setBackgroundResource(R.drawable.baseline_pause_white_48);
             else
                 ibPlayPause.setBackgroundResource(R.drawable.baseline_play_arrow_white_48);
         }
-    }
-
-    @Override
-    public boolean isPlaying()
-    {
-        return isPlaying;
-    }
-
-    @Override
-    public boolean isPaused()
-    {
-        return isPaused;
     }
 
     @Override
@@ -391,41 +432,12 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
     public void setTrackButton(ImageButton ibTrackButton)
     {
         currentTrackIBView = ibTrackButton;
-        if(isPlaying)
-            currentTrackIBView.setBackgroundResource(R.drawable.baseline_pause_white_36);
-        else if(isPaused)
-            currentTrackIBView.setBackgroundResource(R.drawable.baseline_play_arrow_white_36);
-    }
-
-    @Override
-    public void onCompletion(MediaPlayer mp)
-    {
-        Log.d(TAG, "on Completion called");
-        if(currentTrack != null)
+        if(musicService != null)
         {
-            if(isPlaying || isPaused)
-            {
-                player.reset();
-                isPlaying = false;
-                isPaused = false;
-            }
-            int trackIndex = trackList.indexOf(currentTrack);
-            int nextTrackIndex = (trackIndex + 1) % trackList.size();
-            Track nextTrack = trackList.get(nextTrackIndex);
-            currentTrack = nextTrack;
-            viewModel.setCurrentTrack(currentTrack);
-            trackListAdapter.notifyItemChanged(trackIndex);
-            trackListAdapter.notifyItemChanged(nextTrackIndex);
-            currentTrackIBView.setBackgroundResource(R.drawable.baseline_pause_white_36);
-            sbTrackProgressBar.setProgress(0);
-            playTrack(currentTrack);
+            if(musicService.isPlaying())
+                currentTrackIBView.setBackgroundResource(R.drawable.baseline_pause_white_36);
+            else if(musicService.isPaused())
+                currentTrackIBView.setBackgroundResource(R.drawable.baseline_play_arrow_white_36);
         }
-    }
-
-    @Override
-    public boolean onError(MediaPlayer mp, int what, int extra)
-    {
-        Log.d(TAG, "ERROR OCCURED - what: " + what + " ; extra: " + extra);
-        return true;
     }
 }

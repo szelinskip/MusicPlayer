@@ -1,34 +1,42 @@
-package pl.pisquared.musicplayer;
+package pl.pisquared.musicplayer.data;
 
-import android.app.Application;
-import android.arch.lifecycle.ViewModel;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.database.Cursor;
+import android.media.AudioManager;
+import android.media.MediaPlayer;
 import android.net.Uri;
+import android.os.PowerManager;
 import android.provider.MediaStore;
 
 import java.util.ArrayList;
 import java.util.List;
 
+import pl.pisquared.musicplayer.Track;
 
-public class MusicPlayerViewModel extends ViewModel
+public class PlayerDataProvider
 {
     private List<Track> tracks;
+    private MediaPlayer player;
     private Track currentTrack;
-    private Application appContext;
 
-    public MusicPlayerViewModel(Application appContext)
+    private static PlayerDataProvider provider = null;
+
+    public static PlayerDataProvider getInstance(Context context)
     {
-        this.appContext = appContext;
+        if(provider == null)
+            provider = new PlayerDataProvider(context);
+        return provider;
     }
 
     public List<Track> getTracks()
     {
-        if (tracks == null)
-        {
-            loadTracks();
-        }
         return tracks;
+    }
+
+    public MediaPlayer getPlayer()
+    {
+        return player;
     }
 
     public Track getCurrentTrack()
@@ -38,12 +46,18 @@ public class MusicPlayerViewModel extends ViewModel
 
     public void setCurrentTrack(Track track)
     {
-        currentTrack = track;
+        this.currentTrack = track;
     }
 
-    private void loadTracks()
+    private PlayerDataProvider(Context context)
     {
-        ContentResolver cr = appContext.getContentResolver();
+        loadTracks(context);
+        initPlayer(context);
+    }
+
+    private void loadTracks(Context context)
+    {
+        ContentResolver cr = context.getContentResolver();
         Uri uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
         String selection = MediaStore.Audio.Media.IS_MUSIC + "!=0";
         String sortOrder = MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC";
@@ -77,4 +91,13 @@ public class MusicPlayerViewModel extends ViewModel
         }
         tracks = trackList;
     }
+
+    private void initPlayer(Context context)
+    {
+        player = new MediaPlayer();
+        player.setWakeMode(context, PowerManager.PARTIAL_WAKE_LOCK);
+        player.setAudioStreamType(AudioManager.STREAM_MUSIC);
+    }
+
+
 }

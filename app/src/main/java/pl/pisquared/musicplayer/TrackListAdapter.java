@@ -61,7 +61,6 @@ public class TrackListAdapter extends RecyclerView.Adapter<TrackListAdapter.View
             holder.tvAuthor.setText(UNKNOWN_AUTHOR);
         }
         Track currentTrack = musicPlayer.getCurrentTrack();
-        boolean isPlaying = musicPlayer.isPlaying();
         ImageButton ibPlayPause = holder.ibPlayPauseTrack;
         if(currentTrack != null)
             Log.d(TAG, "position: " + position + " ; current track id: " + currentTrack.getId() + " ; the track id: " + track.getId());
@@ -142,8 +141,6 @@ public class TrackListAdapter extends RecyclerView.Adapter<TrackListAdapter.View
 
     public interface MusicPlayer
     {
-        boolean isPlaying();
-        boolean isPaused();
         Track getCurrentTrack();
         void setTrackButton(ImageButton ibTrackButton);
     }
