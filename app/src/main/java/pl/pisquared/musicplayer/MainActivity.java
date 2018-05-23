@@ -21,6 +21,8 @@ import android.os.Bundle;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.SeekBar;
@@ -31,6 +33,8 @@ import java.util.List;
 
 import pl.pisquared.musicplayer.utils.StringTrackUtils;
 import pl.pisquared.musicplayer.utils.TimeConverterUtils;
+import pl.pisquared.musicplayer.viewmodel.MusicPlayerViewModel;
+import pl.pisquared.musicplayer.viewmodel.MusicPlayerViewModelFactory;
 
 
 public class MainActivity extends AppCompatActivity implements TrackListAdapter.OnTrackListItemClickListener, TrackListAdapter.MusicPlayer, View.OnClickListener
@@ -471,5 +475,40 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
             else if(musicService.isPaused())
                 currentTrackIBView.setBackgroundResource(R.drawable.baseline_play_arrow_white_36);
         }
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu)
+    {
+        getMenuInflater().inflate(R.menu.activity_main_menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item)
+    {
+        int itemId = item.getItemId();
+        switch(itemId)
+        {
+            case R.id.about_author:
+                aboutAuthorOptionSelected();
+                return true;
+            case R.id.settings:
+                settingsOptionSelected();
+                return true;
+            default:
+                return super.onOptionsItemSelected(item);
+        }
+    }
+
+    private void aboutAuthorOptionSelected()
+    {
+        Intent startAboutAuthorActivity = new Intent(this, AboutAuthorActivity.class);
+        startActivity(startAboutAuthorActivity);
+    }
+
+    private void settingsOptionSelected()
+    {
+        // TODO
     }
 }
