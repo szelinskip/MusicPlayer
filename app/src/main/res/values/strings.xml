@@ -1,4 +1,14 @@
 <resources>
     <string name="app_name">MusicPlayer</string>
     <string name="track_playback_error">There was a problem with this track playback</string>
+    <string name="default_title">Nothing is being played</string>
+    <string name="default_time">00:00</string>
+    <string name="rewind_button_descr">Rewind 10 seconds</string>
+    <string name="playe_pause_button_descr">Play pause</string>
+    <string name="forward_button_descr">Forward 10 seconds</string>
+    <string name="notification_rewind_button_descr">Notification button rewind 10 seconds</string>
+    <string name="notification_play_pause_button_descr">Notification play pause button</string>
+    <string name="notification_forward_button_descr">Notification button forward 10 seconds</string>
+    <string name="notification_close_button_descr">Closes music player</string>
+    <string name="default_author">No author</string>
 </resources>

@@ -36,6 +36,7 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
 
     private static final int UPDATE_TRACK_PROGRESS_BAR_DELAY = 1000;  // 1000ms = 1s
     private static final int MUSIC_PLAYER_NOTIFICATION_ID = 1;
+    private static final int DEFAULT_PLAY_BUTTON_RES_ID = R.drawable.baseline_play_arrow_black_36;
     private List<Track> trackList;
     private MediaPlayer player;
     private Track currentTrack;
@@ -44,7 +45,7 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
     private MusicPlayerServiceBinder binder = new MusicPlayerServiceBinder();
     private LocalBroadcastManager localBroadcastManager = LocalBroadcastManager.getInstance(this);
     private RemoteViews notificationLayout;
-
+    private boolean isExternalEventReceiverRegistred = false;
 
     private Handler progressUpdaterHandler = new Handler();
     private Runnable trackProgressBarUpdaterRunnable = () -> {
@@ -85,6 +86,18 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
         }
     };
 
+    private BroadcastReceiver externalEventReceiver = new BroadcastReceiver()
+    {
+        @Override
+        public void onReceive(Context context, Intent intent)
+        {
+            if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction()))
+            {
+                onHeadsetUnplugged();
+            }
+        }
+    };
+
     @Override
     public void onCreate()
     {
@@ -101,7 +114,7 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
     {
         initPlayer();
 
-        Notification notification = createNotification();
+        Notification notification = createNotification(DEFAULT_PLAY_BUTTON_RES_ID);
 
         startForeground(MUSIC_PLAYER_NOTIFICATION_ID, notification);
         return START_NOT_STICKY;
@@ -111,16 +124,49 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
     public void onDestroy()
     {
         super.onDestroy();
+        sendSelfDestroyMsg();
+        unregisterReceiver(buttonClicksReceiver);
+        unregisterExternalEventReceiver();
     }
 
     public void close()
     {
         musicForegroundService = null;
-        unregisterReceiver(buttonClicksReceiver);
+        sendUnbindRequest();
         progressUpdaterHandler.removeCallbacks(trackProgressBarUpdaterRunnable);
         player.release();
         stopForeground(true);
         stopSelf();
+    }
+
+    private void onHeadsetUnplugged()
+    {
+        if(isPlaying)
+        {
+            pauseTrack();
+            sendPauseMsg();
+        }
+    }
+
+    private void sendPauseMsg()
+    {
+        Intent intent = new Intent(Constants.ACTIVITY_BROADCAST_INTENT_KEY);
+        intent.putExtra(Constants.MESSAGE_KEY, Constants.PAUSED_MSG);
+        localBroadcastManager.sendBroadcast(intent);
+    }
+
+    public void sendUnbindRequest()
+    {
+        Intent intent = new Intent(Constants.ACTIVITY_BROADCAST_INTENT_KEY);
+        intent.putExtra(Constants.MESSAGE_KEY, Constants.UNBIND_REQUEST_MSG);
+        localBroadcastManager.sendBroadcast(intent);
+    }
+
+    public void sendSelfDestroyMsg()
+    {
+        Intent intent = new Intent(Constants.ACTIVITY_BROADCAST_INTENT_KEY);
+        intent.putExtra(Constants.MESSAGE_KEY, Constants.SERVICE_DESTROY_MSG);
+        localBroadcastManager.sendBroadcast(intent);
     }
 
     public void createNotificationLayout()
@@ -149,7 +195,7 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
 
     }
 
-    public Notification createNotification()
+    public Notification createNotification(int playPauseResId)
     {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, 0);
@@ -161,12 +207,15 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
         }
         else
         {
-            notificationLayout.setTextViewText(R.id.tv_notification_track_title, "");
-            notificationLayout.setTextViewText(R.id.tv_notification_track_author, "");
+            notificationLayout.setTextViewText(R.id.tv_notification_track_title, getText(R.string.default_title));
+            notificationLayout.setTextViewText(R.id.tv_notification_track_author, getText(R.string.default_author));
         }
+
+        notificationLayout.setImageViewResource(R.id.ib_notification_play_pause, playPauseResId);
 
         Notification notification =
                 new NotificationCompat.Builder(this, MusicApp.NOTIFICATION_CHANNEL_ID)
+                        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                         .setContentTitle(Constants.NOTIFICATION_TITLE)
                         .setSmallIcon(R.drawable.baseline_audiotrack_black_18)
                         .setStyle(new NotificationCompat.DecoratedCustomViewStyle())
@@ -177,9 +226,9 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
         return notification;
     }
 
-    private void updateNotification()
+    private void updateNotification(int playPauseResId)
     {
-        Notification notification = createNotification();
+        Notification notification = createNotification(playPauseResId);
         NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if(notificationManager != null)
             notificationManager.notify(MUSIC_PLAYER_NOTIFICATION_ID, notification);
@@ -201,19 +250,28 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
         {
             if(player.isPlaying())
             {
-                player.pause();
-                progressUpdaterHandler.removeCallbacks(trackProgressBarUpdaterRunnable);
-                isPlaying = false;
-                isPaused = true;
+                pauseTrack();
             }
             else
             {
+                registerExternalEventReceiver();
                 player.start();
                 progressUpdaterHandler.postDelayed(trackProgressBarUpdaterRunnable, 0);
                 isPlaying = true;
                 isPaused = false;
+                updateNotification(R.drawable.baseline_pause_black_36);
             }
         }
+    }
+
+    private void pauseTrack()
+    {
+        player.pause();
+        unregisterExternalEventReceiver();
+        progressUpdaterHandler.removeCallbacks(trackProgressBarUpdaterRunnable);
+        isPlaying = false;
+        isPaused = true;
+        updateNotification(R.drawable.baseline_play_arrow_black_36);
     }
 
     public void forwardTrack()
@@ -235,7 +293,7 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
         {
             player.setDataSource(this, uri);
             player.prepareAsync();
-            updateNotification();
+            updateNotification(R.drawable.baseline_pause_black_36);
         } catch (IOException e)
         {
             Toast.makeText(this, R.string.track_playback_error, Toast.LENGTH_SHORT).show();
@@ -321,9 +379,28 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
         Intent intent = new Intent(Constants.ACTIVITY_BROADCAST_INTENT_KEY);
         intent.putExtra(Constants.MESSAGE_KEY, Constants.PREPARED_MSG);
         localBroadcastManager.sendBroadcast(intent);
+        registerExternalEventReceiver();
         mp.start();
         progressUpdaterHandler.postDelayed(trackProgressBarUpdaterRunnable, 0);
         isPlaying = true;
+    }
+
+    private void registerExternalEventReceiver()
+    {
+        if(!isExternalEventReceiverRegistred)
+        {
+            registerReceiver(externalEventReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
+            isExternalEventReceiverRegistred = true;
+        }
+    }
+
+    private void unregisterExternalEventReceiver()
+    {
+        if(isExternalEventReceiverRegistred)
+        {
+            unregisterReceiver(externalEventReceiver);
+            isExternalEventReceiverRegistred = false;
+        }
     }
 
     private void initPlayer()

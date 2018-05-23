@@ -69,8 +69,8 @@ public class TrackListAdapter extends RecyclerView.Adapter<TrackListAdapter.View
 
         if(track.equals(currentTrack))
         {
-            musicPlayer.setTrackButton(ibPlayPause);
             ibPlayPause.setBackgroundResource(R.drawable.baseline_pause_white_36);
+            musicPlayer.setTrackButton(ibPlayPause);
             setColors(holder, Color.WHITE, GREEN_ACCENT_DARKER_COLOR);
             Log.d(TAG, "position: " + position + " ; holder button set to pause");
         }

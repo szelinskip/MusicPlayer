@@ -14,7 +14,6 @@ import java.util.List;
 public class MusicPlayerViewModel extends ViewModel
 {
     private List<Track> tracks;
-    private Track currentTrack;
     private Application appContext;
 
     public MusicPlayerViewModel(Application appContext)
@@ -29,16 +28,6 @@ public class MusicPlayerViewModel extends ViewModel
             loadTracks();
         }
         return tracks;
-    }
-
-    public Track getCurrentTrack()
-    {
-        return currentTrack;
-    }
-
-    public void setCurrentTrack(Track track)
-    {
-        currentTrack = track;
     }
 
     private void loadTracks()

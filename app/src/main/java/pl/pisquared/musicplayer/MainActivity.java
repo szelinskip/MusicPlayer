@@ -75,6 +75,16 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
                     Log.d(TAG, "UPDATE PROGRESS broadcast received");
                     updateProgressBar();
                     break;
+                case Constants.UNBIND_REQUEST_MSG:
+                    Log.d(TAG, "UNBIND REQ broadcast received");
+                    unbind();
+                    break;
+                case Constants.SERVICE_DESTROY_MSG:
+                    onServiceDestroy();
+                    break;
+                case Constants.PAUSED_MSG:
+                    onTrackPaused();
+                    break;
             }
         }
     };
@@ -88,8 +98,13 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
             musicService = binder.getService();
             musicService.setTrackList(trackList);
             musicServiceBounded = true;
-            currentTrack = musicService.getCurrentTrack();
-            viewModel.setCurrentTrack(currentTrack);
+            if(currentTrack == null)
+                currentTrack = musicService.getCurrentTrack();
+            if(!musicService.isPaused() && !musicService.isPlaying() && currentTrack != null)
+            {
+                playTrack(currentTrack);
+            }
+            restoreTrackInfo();
         }
 
         @Override
@@ -150,10 +165,10 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
         viewModel = ViewModelProviders.of(this, new MusicPlayerViewModelFactory(getApplication())).get(MusicPlayerViewModel.class);
         getTrackList();
+        initCurrentTrack();
         initTrackRecyclerView();
         initTrackProgressBar();
         initControlButtons();
-        initCurrentTrack();
     }
 
     private void getTrackList()
@@ -171,7 +186,8 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
 
     private void initCurrentTrack()
     {
-        currentTrack = viewModel.getCurrentTrack();
+        if(MusicForegroundService.musicForegroundService != null)
+            currentTrack = MusicForegroundService.musicForegroundService.getCurrentTrack();
     }
 
     private void initTrackProgressBar()
@@ -225,6 +241,7 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
     @Override
     public void onTrackButtonClick(ImageButton ibView, Track track)
     {
+        setService();
         if(track.equals(currentTrack))
         {
             currentTrackIBView = ibView;
@@ -245,7 +262,6 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
             int currentTrackPosition = trackList.indexOf(currentTrack);
             int newTrackPosition = trackList.indexOf(track);
             currentTrack = track;
-            viewModel.setCurrentTrack(currentTrack);
             currentTrackIBView = ibView;
             currentTrackIBView.setBackgroundResource(R.drawable.baseline_pause_white_36);
             ibPlayPause.setBackgroundResource(R.drawable.baseline_pause_white_48);
@@ -288,8 +304,7 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
             if(musicService.getPlayer().isPlaying())
             {
                 musicService.playOrPauseTrack();
-                currentTrackIBView.setBackgroundResource(R.drawable.baseline_play_arrow_white_36);
-                ibPlayPause.setBackgroundResource(R.drawable.baseline_play_arrow_white_48);
+                onTrackPaused();
             }
             else
             {
@@ -319,6 +334,33 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
             musicService.playTrack(track);
     }
 
+    private void unbind()
+    {
+        if(musicServiceBounded)
+        {
+            musicService = null;
+            musicServiceBounded = false;
+            int trackIndex = trackList.indexOf(currentTrack);
+            currentTrack = null;
+            trackListAdapter.notifyItemChanged(trackIndex);
+            resetUI();
+            unbindService(musicConnection);
+        }
+    }
+
+    private void resetUI()
+    {
+        tvTrackTitle.setText(R.string.default_title);
+        tvLeftTime.setText(R.string.default_time);
+        ibPlayPause.setBackgroundResource(R.drawable.baseline_play_arrow_white_48);
+        sbTrackProgressBar.setProgress(0);
+    }
+
+    private void onServiceDestroy()
+    {
+        //currentTrack = null;
+    }
+
     private void trackPrepared()
     {
         currentTrack = musicService.getCurrentTrack();
@@ -337,7 +379,6 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
             currentTrackIBView.setBackgroundResource(R.drawable.baseline_pause_white_36);
             sbTrackProgressBar.setProgress(0);
             currentTrack = track;
-            viewModel.setCurrentTrack(currentTrack);
         }
     }
 
@@ -352,16 +393,19 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
 
     }
 
+    private void onTrackPaused()
+    {
+        currentTrackIBView.setBackgroundResource(R.drawable.baseline_play_arrow_white_36);
+        ibPlayPause.setBackgroundResource(R.drawable.baseline_play_arrow_white_48);
+    }
+
     @Override
     protected void onPause()
     {
         super.onPause();
         if(musicServiceBounded)
-        {
-            unbindService(musicConnection);
-            musicServiceBounded = false;
-            musicService = null;
-        }
+            unbind();
+
         LocalBroadcastManager.getInstance(this).unregisterReceiver(messageReceiver);
     }
 
@@ -369,16 +413,32 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
     protected void onResume()
     {
         super.onResume();
-        if(musicService != null)
-        {
-            if(musicService.isPlaying() || musicService.isPaused())
-            {
-                sbTrackProgressBar.setProgress(musicService.getPlayer().getCurrentPosition());
-            }
-        }
-        else
+        if(musicService == null)
             setService();
+        else
+            restoreTrackInfo();
+        initCurrentTrack();
         initBroadcastReceiver();
+    }
+
+    private void restoreTrackInfo()
+    {
+        if(musicService != null && (musicService.isPlaying() || musicService.isPaused()))
+        {
+            sbTrackProgressBar.setMax(musicService.getPlayer().getDuration());
+            sbTrackProgressBar.setProgress(musicService.getPlayer().getCurrentPosition());
+            tvTrackTitle.setText(musicService.getCurrentTrack().getTitle());
+            if(musicService.isPlaying())
+            {
+                ibPlayPause.setBackgroundResource(R.drawable.baseline_pause_white_48);
+            }
+            else if(musicService.isPaused())
+            {
+                ibPlayPause.setBackgroundResource(R.drawable.baseline_play_arrow_white_48);
+            }
+            int index = trackList.indexOf(musicService.getCurrentTrack());
+            trackListAdapter.notifyItemChanged(index);
+        }
     }
 
     @Override
@@ -391,14 +451,7 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
     protected void onRestoreInstanceState(Bundle savedInstanceState)
     {
         super.onRestoreInstanceState(savedInstanceState);
-        if(currentTrack != null && musicService != null)
-        {
-            tvTrackTitle.setText(currentTrack.getTitle());
-            if(musicService.getPlayer().isPlaying())
-                ibPlayPause.setBackgroundResource(R.drawable.baseline_pause_white_48);
-            else
-                ibPlayPause.setBackgroundResource(R.drawable.baseline_play_arrow_white_48);
-        }
+        restoreTrackInfo();
     }
 
     @Override

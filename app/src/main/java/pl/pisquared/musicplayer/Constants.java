@@ -12,6 +12,9 @@ public class Constants
     public static final String PREPARED_MSG = "PREPARED_MSG";
     public static final String COMPLETION_MSG = "COMPLETION_MSG";
     public static final String UPDATE_PROGRESS_MSG = "UPDATE_PROGRESS_MSG";
+    public static final String UNBIND_REQUEST_MSG = "UNBIND_REQUEST_MSG";
+    public static final String SERVICE_DESTROY_MSG = "SERVICE_DESTROY_MSG";
+    public static final String PAUSED_MSG = "PAUSED_MSG";
 
     public static final String REWIND_INTENT_ACTION = "rewind";
     public static final int REWIND_INTENT_REQUEST_CODE = 1;
