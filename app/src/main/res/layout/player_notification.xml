@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="64dp">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentTop="true"
+        android:layout_toStartOf="@id/ib_notification_rewind"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tv_notification_track_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="2dp"
+            android:maxLines="1"
+            android:text="Sample title"
+            android:textSize="16sp"
+            style="@style/TextAppearance.Compat.Notification" />
+
+        <TextView
+            android:id="@+id/tv_notification_track_author"
+            android:layout_width="wrap_content"
+            android:maxLines="1"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="4dp"
+            android:text="Sample author"
+            android:textSize="14sp"
+            style="@style/TextAppearance.Compat.Notification" />
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/ib_notification_rewind"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:layout_marginEnd="8dp"
+        android:layout_alignParentTop="true"
+        android:layout_toStartOf="@id/ib_notification_play_pause"
+        android:background="@drawable/baseline_fast_rewind_black_48" />
+
+    <ImageButton
+        android:id="@+id/ib_notification_play_pause"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:layout_marginEnd="8dp"
+        android:layout_alignParentTop="true"
+        android:background="@drawable/baseline_play_arrow_black_48"
+        android:layout_toLeftOf="@+id/ib_notification_forward" />
+
+    <ImageButton
+        android:id="@+id/ib_notification_forward"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:layout_marginEnd="8dp"
+        android:layout_alignParentTop="true"
+        android:layout_toStartOf="@+id/ib_notification_close"
+        android:background="@drawable/baseline_fast_forward_black_48" />
+
+    <ImageButton
+        android:id="@+id/ib_notification_close"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentTop="true"
+        android:background="@drawable/baseline_close_black_36"/>
+
+</RelativeLayout>

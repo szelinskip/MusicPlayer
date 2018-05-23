@@ -4,6 +4,8 @@ import android.app.Application;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.Context;
+import android.content.Intent;
 import android.os.Build;
 
 public class MusicApp extends Application
@@ -16,6 +18,7 @@ public class MusicApp extends Application
     {
         super.onCreate();
         createNotificationChannel();
+        initService();
     }
 
     private void createNotificationChannel()
@@ -27,5 +30,11 @@ public class MusicApp extends Application
             if(manager != null)
                 manager.createNotificationChannel(channel);
         }
+    }
+
+    private void initService()
+    {
+        Intent startMusicService = new Intent(this, MusicForegroundService.class);
+        startService(startMusicService);
     }
 }

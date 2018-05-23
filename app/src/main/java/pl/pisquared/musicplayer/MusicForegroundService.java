@@ -1,10 +1,14 @@
 package pl.pisquared.musicplayer;
 
 import android.app.Notification;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.ContentUris;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.net.Uri;
@@ -16,20 +20,20 @@ import android.provider.MediaStore;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.content.LocalBroadcastManager;
-import android.support.v4.util.Pair;
 import android.util.Log;
+import android.widget.RemoteViews;
 import android.widget.Toast;
 
 import java.io.IOException;
 import java.util.List;
 
-import pl.pisquared.musicplayer.utils.StringTrackUtils;
-import pl.pisquared.musicplayer.utils.TimeConverterUtils;
-
 
 public class MusicForegroundService extends Service implements MediaPlayer.OnPreparedListener, MediaPlayer.OnCompletionListener, MediaPlayer.OnErrorListener
 {
     private static final String TAG = "MusicForegroundService";
+
+    public static MusicForegroundService musicForegroundService = null;
+
     private static final int UPDATE_TRACK_PROGRESS_BAR_DELAY = 1000;  // 1000ms = 1s
     private static final int MUSIC_PLAYER_NOTIFICATION_ID = 1;
     private List<Track> trackList;
@@ -39,40 +43,188 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
     private boolean isPaused = false;
     private MusicPlayerServiceBinder binder = new MusicPlayerServiceBinder();
     private LocalBroadcastManager localBroadcastManager = LocalBroadcastManager.getInstance(this);
+    private RemoteViews notificationLayout;
+
 
     private Handler progressUpdaterHandler = new Handler();
     private Runnable trackProgressBarUpdaterRunnable = () -> {
-        Intent intent = new Intent(Constants.BROADCAST_INTENT_KEY);
+        Intent intent = new Intent(Constants.ACTIVITY_BROADCAST_INTENT_KEY);
         intent.putExtra(Constants.MESSAGE_KEY, Constants.UPDATE_PROGRESS_MSG);
+        localBroadcastManager.sendBroadcast(intent);
         progressUpdaterHandler.postDelayed(this.trackProgressBarUpdaterRunnable, UPDATE_TRACK_PROGRESS_BAR_DELAY);
+    };
+
+    private BroadcastReceiver buttonClicksReceiver = new BroadcastReceiver()
+    {
+        @Override
+        public void onReceive(Context context, Intent intent)
+        {
+            String action = intent.getStringExtra(Constants.BUTTON_CLICKED_MSG);
+            switch(action)
+            {
+                case Constants.REWIND_INTENT_ACTION:
+                    Log.d(TAG, "REWIND CLICK");
+                    rewindTrack();
+                    break;
+
+                case Constants.PLAY_PAUSE_INTENT_ACTION:
+                    Log.d(TAG, "PLAY PAUSE CLICK");
+                    playOrPauseTrack();
+                    break;
+
+                case Constants.FORWARD_INTENT_ACTION:
+                    Log.d(TAG, "FORWARD CLICK");
+                    forwardTrack();
+                    break;
+
+                case Constants.CLOSE_INTENT_ACTION:
+                    Log.d(TAG, "CLOSE CLICK");
+                    close();
+                    break;
+            }
+        }
     };
 
     @Override
     public void onCreate()
     {
         super.onCreate();
+        musicForegroundService = this;
+        createNotificationLayout();
         initPlayer();
         currentTrack = null;
+        registerReceiver(buttonClicksReceiver, new IntentFilter(Constants.BUTTONS_BROADCAST_INTENT_KEY));
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId)
     {
         initPlayer();
+
+        Notification notification = createNotification();
+
+        startForeground(MUSIC_PLAYER_NOTIFICATION_ID, notification);
+        return START_NOT_STICKY;
+    }
+
+    @Override
+    public void onDestroy()
+    {
+        super.onDestroy();
+    }
+
+    public void close()
+    {
+        musicForegroundService = null;
+        unregisterReceiver(buttonClicksReceiver);
+        progressUpdaterHandler.removeCallbacks(trackProgressBarUpdaterRunnable);
+        player.release();
+        stopForeground(true);
+        stopSelf();
+    }
+
+    public void createNotificationLayout()
+    {
+        notificationLayout = new RemoteViews(getPackageName(), R.layout.player_notification);
+
+        Intent rewindClickedIntent = new Intent(Constants.BUTTONS_BROADCAST_INTENT_KEY);
+        rewindClickedIntent.putExtra(Constants.BUTTON_CLICKED_MSG, Constants.REWIND_INTENT_ACTION);
+        PendingIntent rewindClickedPIntent = PendingIntent.getBroadcast(this, Constants.REWIND_INTENT_REQUEST_CODE, rewindClickedIntent, 0);
+        notificationLayout.setOnClickPendingIntent(R.id.ib_notification_rewind, rewindClickedPIntent);
+
+        Intent playPauseClickedIntent = new Intent(Constants.BUTTONS_BROADCAST_INTENT_KEY);
+        playPauseClickedIntent.putExtra(Constants.BUTTON_CLICKED_MSG, Constants.PLAY_PAUSE_INTENT_ACTION);
+        PendingIntent playPauseClickedPIntent = PendingIntent.getBroadcast(this, Constants.PLAY_PAUSE_INTENT_REQUEST_CODE, playPauseClickedIntent, 0);
+        notificationLayout.setOnClickPendingIntent(R.id.ib_notification_play_pause, playPauseClickedPIntent);
+
+        Intent forwardClickedIntent = new Intent(Constants.BUTTONS_BROADCAST_INTENT_KEY);
+        forwardClickedIntent.putExtra(Constants.BUTTON_CLICKED_MSG, Constants.FORWARD_INTENT_ACTION);
+        PendingIntent forwardClickedPIntent = PendingIntent.getBroadcast(this, Constants.FORWARD_INTENT_REQUEST_CODE, forwardClickedIntent, 0);
+        notificationLayout.setOnClickPendingIntent(R.id.ib_notification_forward, forwardClickedPIntent);
+
+        Intent closeClickedIntent = new Intent(Constants.BUTTONS_BROADCAST_INTENT_KEY);
+        closeClickedIntent.putExtra(Constants.BUTTON_CLICKED_MSG, Constants.CLOSE_INTENT_ACTION);
+        PendingIntent closeClickedPIntent = PendingIntent.getBroadcast(this, Constants.CLOSE_INTENT_REQUEST_CODE, closeClickedIntent, 0);
+        notificationLayout.setOnClickPendingIntent(R.id.ib_notification_close, closeClickedPIntent);
+
+    }
+
+    public Notification createNotification()
+    {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, 0);
 
+        if(currentTrack != null)
+        {
+            notificationLayout.setTextViewText(R.id.tv_notification_track_title, currentTrack.getTitle());
+            notificationLayout.setTextViewText(R.id.tv_notification_track_author, currentTrack.getAuthor());
+        }
+        else
+        {
+            notificationLayout.setTextViewText(R.id.tv_notification_track_title, "");
+            notificationLayout.setTextViewText(R.id.tv_notification_track_author, "");
+        }
+
         Notification notification =
                 new NotificationCompat.Builder(this, MusicApp.NOTIFICATION_CHANNEL_ID)
-                        .setContentTitle("Sample title")
-                        .setContentText("Content test")
-                        .setSmallIcon(R.drawable.baseline_fast_forward_white_18)
+                        .setContentTitle(Constants.NOTIFICATION_TITLE)
+                        .setSmallIcon(R.drawable.baseline_audiotrack_black_18)
+                        .setStyle(new NotificationCompat.DecoratedCustomViewStyle())
+                        .setCustomContentView(notificationLayout)
                         .setContentIntent(pendingIntent)
                         .build();
 
-        startForeground(MUSIC_PLAYER_NOTIFICATION_ID, notification);
-        stopSelf();
-        return START_NOT_STICKY;
+        return notification;
+    }
+
+    private void updateNotification()
+    {
+        Notification notification = createNotification();
+        NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if(notificationManager != null)
+            notificationManager.notify(MUSIC_PLAYER_NOTIFICATION_ID, notification);
+    }
+
+    public void rewindTrack()
+    {
+        if(currentTrack != null && (isPlaying || isPaused))
+        {
+            int currentPosition = player.getCurrentPosition();
+            int rewoundPosition = currentPosition - Constants.REWIND_TRACK_BY_MILLISECONDS > 0 ? currentPosition - Constants.REWIND_TRACK_BY_MILLISECONDS : 0;
+            player.seekTo(rewoundPosition);
+        }
+    }
+
+    public void playOrPauseTrack()
+    {
+        if(currentTrack != null)
+        {
+            if(player.isPlaying())
+            {
+                player.pause();
+                progressUpdaterHandler.removeCallbacks(trackProgressBarUpdaterRunnable);
+                isPlaying = false;
+                isPaused = true;
+            }
+            else
+            {
+                player.start();
+                progressUpdaterHandler.postDelayed(trackProgressBarUpdaterRunnable, 0);
+                isPlaying = true;
+                isPaused = false;
+            }
+        }
+    }
+
+    public void forwardTrack()
+    {
+        if(currentTrack != null && (isPlaying || isPaused))
+        {
+            int duration = player.getDuration();
+            int currentPosition = player.getCurrentPosition();
+            int forwardedPosition = Constants.FORWARD_TRACK_BY_MILLISECONDS + currentPosition < duration ? Constants.FORWARD_TRACK_BY_MILLISECONDS + currentPosition : duration;
+            player.seekTo(forwardedPosition);
+        }
     }
 
     public void playTrack(Track track)
@@ -83,6 +235,7 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
         {
             player.setDataSource(this, uri);
             player.prepareAsync();
+            updateNotification();
         } catch (IOException e)
         {
             Toast.makeText(this, R.string.track_playback_error, Toast.LENGTH_SHORT).show();
@@ -132,12 +285,6 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
     }
 
     @Override
-    public boolean onUnbind(Intent intent)
-    {
-        return false;
-    }
-
-    @Override
     public void onCompletion(MediaPlayer mp)
     {
         Log.d(TAG, "on Completion called");
@@ -153,7 +300,7 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
             int nextTrackIndex = (trackIndex + 1) % trackList.size();
             Track nextTrack = trackList.get(nextTrackIndex);
             currentTrack = nextTrack;
-            Intent intent = new Intent(KEYGUARD_SERVICE);
+            Intent intent = new Intent(Constants.ACTIVITY_BROADCAST_INTENT_KEY);
             intent.putExtra(Constants.MESSAGE_KEY, Constants.COMPLETION_MSG);
             intent.putExtra(Constants.CURRENT_TRACK_KEY, trackList.indexOf(currentTrack));
             localBroadcastManager.sendBroadcast(intent);
@@ -171,7 +318,7 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
     @Override
     public void onPrepared(MediaPlayer mp)
     {
-        Intent intent = new Intent(Constants.BROADCAST_INTENT_KEY);
+        Intent intent = new Intent(Constants.ACTIVITY_BROADCAST_INTENT_KEY);
         intent.putExtra(Constants.MESSAGE_KEY, Constants.PREPARED_MSG);
         localBroadcastManager.sendBroadcast(intent);
         mp.start();
