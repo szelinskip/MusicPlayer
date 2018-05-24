@@ -16,4 +16,7 @@
     <string name="about_author_text">Favourite course :)\nRecently lost a lot of time, cause was\nasked to implement strange service.\nSo, don’t read first letter of each line.</string>
     <string name="about_author_under_picture">Typed \"random image\" in google</string>
     <string name="about_author_activity_label">About author</string>
+    <string name="settings_activity_label">Settings</string>
+    <string name="shuffle_play_text">Shuffle play</string>
+    <string name="auto_play_next_text">Auto play next track</string>
 </resources>

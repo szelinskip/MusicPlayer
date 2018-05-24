@@ -25,9 +25,16 @@
 
         <service android:name=".MusicForegroundService" />
 
-        <activity android:name=".AboutAuthorActivity"
+        <activity
+            android:name=".AboutAuthorActivity"
             android:label="@string/about_author_activity_label"
-            android:parentActivityName=".MainActivity"/>
+            android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".SettingsActivity"
+            android:parentActivityName=".MainActivity"
+            android:label="@string/settings_activity_label"/>
+
     </application>
 
 </manifest>
