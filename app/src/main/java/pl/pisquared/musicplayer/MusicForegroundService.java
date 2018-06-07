@@ -25,6 +25,8 @@ import android.widget.RemoteViews;
 import android.widget.Toast;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 
@@ -37,11 +39,14 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
     private static final int UPDATE_TRACK_PROGRESS_BAR_DELAY = 1000;  // 1000ms = 1s
     private static final int MUSIC_PLAYER_NOTIFICATION_ID = 1;
     private static final int DEFAULT_PLAY_BUTTON_RES_ID = R.drawable.baseline_play_arrow_black_36;
+    private List<Track> baseList;
     private List<Track> trackList;
     private MediaPlayer player;
     private Track currentTrack;
     private boolean isPlaying = false;
     private boolean isPaused = false;
+    private boolean shufflePlay;
+    private boolean autoPlayNext;
     private MusicPlayerServiceBinder binder = new MusicPlayerServiceBinder();
     private LocalBroadcastManager localBroadcastManager = LocalBroadcastManager.getInstance(this);
     private RemoteViews notificationLayout;
@@ -320,6 +325,21 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
         isPlaying = playing;
     }
 
+    public void setSettings(boolean shufflePlay, boolean autoPlayNext)
+    {
+        boolean isAlreadyShuffle = this.shufflePlay;
+        this.shufflePlay = shufflePlay;
+        this.autoPlayNext = autoPlayNext;
+        if(shufflePlay && !isAlreadyShuffle)
+        {
+            Collections.shuffle(trackList);
+        }
+        else if (!shufflePlay)
+        {
+            trackList = baseList;
+        }
+    }
+
     public boolean isPaused()
     {
         return isPaused;
@@ -332,7 +352,14 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
 
     public void setTrackList(List<Track> trackList)
     {
-        this.trackList = trackList;
+        this.baseList = new ArrayList<Track>(trackList.size());
+        baseList.addAll(trackList);
+        trackList = new ArrayList<Track>(trackList.size());
+        trackList.addAll(baseList);
+        if(shufflePlay)
+        {
+            Collections.shuffle(trackList);
+        }
     }
 
     @Nullable
@@ -354,15 +381,29 @@ public class MusicForegroundService extends Service implements MediaPlayer.OnPre
                 isPlaying = false;
                 isPaused = false;
             }
-            int trackIndex = trackList.indexOf(currentTrack);
-            int nextTrackIndex = (trackIndex + 1) % trackList.size();
-            Track nextTrack = trackList.get(nextTrackIndex);
-            currentTrack = nextTrack;
-            Intent intent = new Intent(Constants.ACTIVITY_BROADCAST_INTENT_KEY);
-            intent.putExtra(Constants.MESSAGE_KEY, Constants.COMPLETION_MSG);
-            intent.putExtra(Constants.CURRENT_TRACK_KEY, trackList.indexOf(currentTrack));
-            localBroadcastManager.sendBroadcast(intent);
-            playTrack(currentTrack);
+            if(autoPlayNext)
+            {
+                int trackIndex = trackList.indexOf(currentTrack);
+                int nextTrackIndex = (trackIndex + 1) % trackList.size();
+                Track nextTrack = trackList.get(nextTrackIndex);
+                currentTrack = nextTrack;
+                Intent intent = new Intent(Constants.ACTIVITY_BROADCAST_INTENT_KEY);
+                intent.putExtra(Constants.MESSAGE_KEY, Constants.COMPLETION_MSG);
+                intent.putExtra(Constants.CURRENT_TRACK_KEY, baseList.indexOf(currentTrack));
+                localBroadcastManager.sendBroadcast(intent);
+                playTrack(currentTrack);
+            }
+            else
+            {
+                Intent intent = new Intent(Constants.ACTIVITY_BROADCAST_INTENT_KEY);
+                intent.putExtra(Constants.MESSAGE_KEY, Constants.COMPLETION_MSG);
+                intent.putExtra(Constants.CURRENT_TRACK_KEY, trackList.indexOf(currentTrack));
+                localBroadcastManager.sendBroadcast(intent);
+                isPlaying = false;
+                isPaused = false;
+                currentTrack = null;
+            }
+
         }
     }
 

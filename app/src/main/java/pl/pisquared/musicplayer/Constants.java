@@ -25,4 +25,8 @@ public class Constants
     public static final String FORWARD_INTENT_ACTION = "forward";
     public static final String CLOSE_INTENT_ACTION = "close";
     public static final String BUTTON_CLICKED_MSG = "notification button";
+
+    public static final String SETTINGS_PREFERENCES = "SETTINGS_PREFERENCES";
+    public static final String SHUFFLE_PLAY_KEY = "SHUFFLE_PLAY_KEY";
+    public static final String AUTO_PLAY_NEXT_KEY = "AUTO_PLAY_NEXT_KEY";
 }

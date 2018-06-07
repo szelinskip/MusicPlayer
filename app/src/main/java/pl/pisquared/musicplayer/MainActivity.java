@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.media.AudioManager;
 import android.os.IBinder;
@@ -54,6 +55,9 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
     private Track currentTrack;
     private ImageButton currentTrackIBView;
     private MusicPlayerViewModel viewModel;
+
+    boolean shufflePlay = false;
+    boolean autoPlayNext = true;
 
     private MusicForegroundService musicService;
     private boolean musicServiceBounded = false;
@@ -102,6 +106,7 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
             musicService = binder.getService();
             musicService.setTrackList(trackList);
             musicServiceBounded = true;
+            musicService.setSettings(shufflePlay, autoPlayNext);
             if(currentTrack == null)
                 currentTrack = musicService.getCurrentTrack();
             if(!musicService.isPaused() && !musicService.isPlaying() && currentTrack != null)
@@ -374,7 +379,7 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
 
     private void trackCompletion(int newTrackIndex)
     {
-        if(newTrackIndex != musicService.getCurrentTrack().getId())
+        if(newTrackIndex != trackList.indexOf(currentTrack))
         {
             int trackIndex = trackList.indexOf(currentTrack);
             Track track = trackList.get(newTrackIndex);
@@ -383,6 +388,16 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
             currentTrackIBView.setBackgroundResource(R.drawable.baseline_pause_white_36);
             sbTrackProgressBar.setProgress(0);
             currentTrack = track;
+        }
+        else
+        {
+            int trackIndex = trackList.indexOf(currentTrack);
+            currentTrackIBView.setBackgroundResource(R.drawable.baseline_play_arrow_black_36);
+            ibPlayPause.setBackgroundResource(R.drawable.baseline_play_arrow_white_48);
+            sbTrackProgressBar.setProgress(0);
+            currentTrack = null;
+            trackListAdapter.notifyItemChanged(trackIndex);
+
         }
     }
 
@@ -417,12 +432,20 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
     protected void onResume()
     {
         super.onResume();
+        initSettings();
         if(musicService == null)
             setService();
         else
             restoreTrackInfo();
         initCurrentTrack();
         initBroadcastReceiver();
+    }
+
+    private void initSettings()
+    {
+        SharedPreferences preferences = getSharedPreferences(Constants.SETTINGS_PREFERENCES, Context.MODE_PRIVATE);
+        shufflePlay = preferences.getBoolean(Constants.SHUFFLE_PLAY_KEY, false);
+        autoPlayNext = preferences.getBoolean(Constants.AUTO_PLAY_NEXT_KEY, true);
     }
 
     private void restoreTrackInfo()
@@ -509,6 +532,7 @@ public class MainActivity extends AppCompatActivity implements TrackListAdapter.
 
     private void settingsOptionSelected()
     {
-        // TODO
+        Intent startSettingsActivity = new Intent(this, SettingsActivity.class);
+        startActivity(startSettingsActivity);
     }
 }
